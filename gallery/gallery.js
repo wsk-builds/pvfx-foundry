@@ -206,47 +206,101 @@
   }
 
   function layout(player) {
-    const pad = 20;
-    const maxW = Math.max(1, player.stage.clientWidth - pad);
-    const maxH = Math.max(1, player.stage.clientHeight - pad);
-    const fitted = Math.floor(Math.min(maxW / player.effect.w, maxH / player.effect.h));
-    const scale = Math.max(1, Math.min(state.scale, fitted || 1));
-    const dpr = Math.max(1, Math.round(devicePixelRatio || 1));
-    const cssW = player.effect.w * scale;
-    const cssH = player.effect.h * scale;
     if (!player.stage.clientWidth || !player.stage.clientHeight) return;
-    if (player.canvas.width === cssW * dpr && player.canvas.height === cssH * dpr) return;
-    player.canvas.style.width = `${cssW}px`;
-    player.canvas.style.height = `${cssH}px`;
-    player.canvas.width = cssW * dpr;
-    player.canvas.height = cssH * dpr;
-    player.scale = scale * dpr;
+    const dpr = Math.max(1, Math.round(devicePixelRatio || 1));
+    const zoom = player.zoom || 1;
+    let cssW;
+    let cssH;
+    let scale;
+    if (player.fillStage) {
+      cssW = player.stage.clientWidth;
+      cssH = player.stage.clientHeight;
+      const fitted = Math.max(1, Math.floor(Math.min(cssW / player.effect.w, cssH / player.effect.h)));
+      const base = Math.min(fitted, 8);
+      scale = base * zoom;
+    } else {
+      const pad = 20;
+      const maxW = Math.max(1, player.stage.clientWidth - pad);
+      const maxH = Math.max(1, player.stage.clientHeight - pad);
+      const fitted = Math.floor(Math.min(maxW / player.effect.w, maxH / player.effect.h));
+      scale = Math.max(1, Math.min(state.scale, fitted || 1));
+      cssW = player.effect.w * scale;
+      cssH = player.effect.h * scale;
+    }
+    const nextScale = scale * dpr;
+    const sameSize = player.canvas.width === Math.round(cssW * dpr) && player.canvas.height === Math.round(cssH * dpr);
+    if (sameSize && player.scale === nextScale) return;
+    player.canvas.style.width = player.fillStage ? "100%" : `${cssW}px`;
+    player.canvas.style.height = player.fillStage ? "100%" : `${cssH}px`;
+    player.canvas.width = Math.round(cssW * dpr);
+    player.canvas.height = Math.round(cssH * dpr);
+    player.scale = nextScale;
     player.dirty = true;
     draw(player);
+  }
+
+  function paintBackdrop(ctx, kind, w, h) {
+    if (kind === "light") {
+      ctx.fillStyle = "#ebe8f0";
+      ctx.fillRect(0, 0, w, h);
+      return;
+    }
+    if (kind === "none") return;
+    if (kind === "sky") {
+      const gradient = ctx.createLinearGradient(0, 0, 0, h);
+      gradient.addColorStop(0, "#0d0b14");
+      gradient.addColorStop(1, "#221d33");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#cfc8ff";
+      for (let i = 0; i < 36; i += 1) {
+        if ((i * 17) % 23 < 18) continue;
+        ctx.fillRect((i * 97) % w, (i * 53) % h, 2, 2);
+      }
+      return;
+    }
+    ctx.fillStyle = "#15131d";
+    ctx.fillRect(0, 0, w, h);
+    if (kind !== "ground") return;
+    const floor = Math.floor(h * 0.78);
+    ctx.fillStyle = "#4a4263";
+    ctx.fillRect(0, floor, w, 2);
+    const brickH = Math.max(8, Math.round(h / 48));
+    for (let y = floor + 2; y < h; y += brickH) {
+      const row = Math.floor((y - floor) / brickH);
+      ctx.fillStyle = row < 1 ? "#2b2639" : "#211d2d";
+      ctx.fillRect(0, y, w, brickH - 2);
+      ctx.fillStyle = "#1a1724";
+      const offset = row % 2 ? 16 : 0;
+      for (let x = -offset; x < w; x += 28) ctx.fillRect(x, y, 2, brickH);
+    }
   }
 
   function draw(player) {
     if (!player.ready) return;
     const ctx = player.canvas.getContext("2d");
     const { w, h, columns } = player.effect;
+    const dw = w * player.scale;
+    const dh = h * player.scale;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, player.canvas.width, player.canvas.height);
-    ctx.drawImage(
-      player.image,
-      (player.frame % columns) * w,
-      Math.floor(player.frame / columns) * h,
-      w,
-      h,
-      0,
-      0,
-      w * player.scale,
-      h * player.scale
-    );
+    if (player.fillStage) paintBackdrop(ctx, player.backdrop || "dark", player.canvas.width, player.canvas.height);
+    const ox = player.fillStage ? (player.canvas.width - dw) / 2 : 0;
+    const oy = player.fillStage ? (player.canvas.height - dh) / 2 : 0;
+    ctx.save();
+    if (player.flip) {
+      ctx.translate(ox + dw, oy);
+      ctx.scale(-1, 1);
+      ctx.drawImage(player.image, (player.frame % columns) * w, Math.floor(player.frame / columns) * h, w, h, 0, 0, dw, dh);
+    } else {
+      ctx.drawImage(player.image, (player.frame % columns) * w, Math.floor(player.frame / columns) * h, w, h, ox, oy, dw, dh);
+    }
+    ctx.restore();
     player.dirty = false;
   }
 
   function step(player, dt) {
-    if (!player.ready || !player.active) return;
+    if (!player.ready || !player.active || player.playing === false) return;
     if (reduceMotion && !player.force) return;
     const count = playableCount(player.effect);
     if (player.hold > 0) {
@@ -255,7 +309,7 @@
       player.frame = 0;
       player.dirty = true;
     }
-    player.acc += dt;
+    player.acc += dt * (player.speed || 1);
     while (player.acc >= player.effect.frameMs) {
       player.acc -= player.effect.frameMs;
       player.frame += 1;
@@ -337,7 +391,7 @@
     $("count").textContent = shown === total ? `${total} 个特效` : `显示 ${shown} / ${total}`;
     $("empty").hidden = shown !== 0;
     $("lede").textContent = state.library === "foundry"
-      ? "101 个像素特效，明亮与纯色各一套。点开一张可看大图并重播。单次特效会停在最后一帧，再自动重播。"
+      ? "101 个像素特效，明亮与纯色各一套。点开一张，旁边可以调速度、背景、镜像和特写。"
       : "旧版 0.10 的 44 个 96×96 特效，每行 5 帧。这一版没有明亮 / 纯色分档。";
   }
 
@@ -349,27 +403,135 @@
     dl.append(dt, dd);
   }
 
+  function optionButtons(host, options, current, onPick) {
+    host.replaceChildren();
+    for (const option of options) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn";
+      button.textContent = option.label;
+      button.dataset.value = String(option.value);
+      button.setAttribute("aria-pressed", option.value === current ? "true" : "false");
+      button.addEventListener("click", () => {
+        for (const item of host.querySelectorAll(".btn")) {
+          item.setAttribute("aria-pressed", item === button ? "true" : "false");
+        }
+        onPick(option.value);
+      });
+      host.append(button);
+    }
+  }
+
+  function detailTier() {
+    return detailPlayer?.tier || state.tier;
+  }
+
+  function usageText(effect) {
+    const tier = effect.library === "foundry" ? detailTier() : "grid";
+    const path = effect.sheet(effect.library === "foundry" ? detailTier() : "lit").replace(/^\.\.\//, "");
+    return [
+      `// ${path}`,
+      `// ${effect.w}×${effect.h}，每行 ${effect.columns} 帧，${effect.frameMs} ms，${effect.loop ? "循环" : "单次"}`,
+      `const column = frame % ${effect.columns};`,
+      `const row = Math.floor(frame / ${effect.columns});`,
+      `ctx.imageSmoothingEnabled = false;`,
+      `ctx.drawImage(sheet, column * ${effect.w}, row * ${effect.h}, ${effect.w}, ${effect.h}, x, y, ${effect.w}, ${effect.h});`,
+      tier === "strict" ? "// 当前是纯色 strict" : ""
+    ].filter(Boolean).join("\n");
+  }
+
+  function refreshFacts(effect) {
+    const facts = $("detail-facts");
+    facts.replaceChildren();
+    fact(facts, "种类", effect.loop ? "循环" : "单次");
+    fact(facts, "时长", `${((playableCount(effect) * effect.frameMs) / 1000).toFixed(2)} 秒，${playableCount(effect)} 帧，每帧 ${effect.frameMs} 毫秒`);
+    fact(facts, "画布", `${effect.w} × ${effect.h} 像素`);
+    if (effect.library === "foundry") fact(facts, "风格", detailTier() === "lit" ? "明亮" : "纯色");
+    if (effect.tags.length) fact(facts, "标签", effect.tags.join("、"));
+  }
+
+  function restartDetail() {
+    if (!detailPlayer) return;
+    detailPlayer.frame = 0;
+    detailPlayer.acc = 0;
+    detailPlayer.hold = 0;
+    detailPlayer.dirty = true;
+    draw(detailPlayer);
+  }
+
   function openDetail(effect) {
     selected = effect;
     const stage = $("detail-stage");
-    stage.className = `detail-stage stage${state.checker ? " checker" : ""}`;
+    stage.className = "detail-stage stage";
     if (detailPlayer) live.delete(detailPlayer);
     detailPlayer = createPlayer(effect, $("detail-canvas"), stage, true);
     detailPlayer.active = true;
-    $("detail-kicker").textContent = `${label(effect.category)} · ${effect.loop ? "循环" : "单次"}`;
+    detailPlayer.fillStage = true;
+    detailPlayer.backdrop = "dark";
+    detailPlayer.playing = true;
+    detailPlayer.speed = 1;
+    detailPlayer.zoom = 1;
+    detailPlayer.flip = false;
+    detailPlayer.tier = effect.library === "foundry" ? state.tier : "lit";
+    $("detail-kicker").textContent = `${label(effect.category)} / ${effect.id}`;
     $("detail-title").textContent = effect.name;
     $("detail-desc").textContent = effect.description;
-    const facts = $("detail-facts");
-    facts.replaceChildren();
-    fact(facts, "尺寸", `${effect.w}×${effect.h}`);
-    fact(facts, "帧数", `${playableCount(effect)} 帧可见，表内共 ${effect.frames} 帧`);
-    fact(facts, "帧长", `${effect.frameMs} ms`);
-    fact(facts, "风格", effect.library === "foundry" ? (state.tier === "lit" ? "明亮 lit" : "纯色 strict") : "旧版单套");
-    if (effect.tags.length) fact(facts, "标签", effect.tags.join("、"));
-    $("detail-path").textContent = effect.sheet(state.tier).replace(/^\.\.\//, "");
+    refreshFacts(effect);
+    $("d-code").textContent = usageText(effect);
+    $("d-play").textContent = "暂停";
+    $("d-play").setAttribute("aria-pressed", "true");
+    $("d-flip").setAttribute("aria-pressed", "false");
+    $("d-zoom").setAttribute("aria-pressed", "false");
+    $("d-sheet-btn").setAttribute("aria-pressed", "false");
+    $("d-sheet").hidden = true;
+    $("d-sheet").replaceChildren();
+    optionButtons($("d-speed"), [
+      { value: 0.25, label: "0.25×" },
+      { value: 0.5, label: "0.5×" },
+      { value: 1, label: "1×" }
+    ], 1, (value) => {
+      detailPlayer.speed = value;
+    });
+    optionButtons($("d-bg"), [
+      { value: "light", label: "抹白" },
+      { value: "sky", label: "天空" },
+      { value: "ground", label: "地面" },
+      { value: "dark", label: "黑夜" },
+      { value: "none", label: "无" }
+    ], "dark", (value) => {
+      detailPlayer.backdrop = value;
+      detailPlayer.stage.classList.toggle("checker", value === "none");
+      detailPlayer.dirty = true;
+      draw(detailPlayer);
+    });
+    $("d-style-row").hidden = effect.library !== "foundry";
+    if (effect.library === "foundry") {
+      optionButtons($("d-style"), [
+        { value: "lit", label: "明亮" },
+        { value: "strict", label: "纯色" }
+      ], detailPlayer.tier, (value) => {
+        detailPlayer.tier = value;
+        detailPlayer.ready = false;
+        detailPlayer.image.src = effect.sheet(value);
+        refreshFacts(effect);
+        $("d-code").textContent = usageText(effect);
+        if (!$("d-sheet").hidden) showSheet(effect);
+      });
+    }
     if (!dialog.open) dialog.showModal();
     requestAnimationFrame(() => layout(detailPlayer));
     history.replaceState(null, "", `#${encodeURIComponent(effect.key)}`);
+  }
+
+  function showSheet(effect) {
+    const img = document.createElement("img");
+    img.src = effect.sheet(effect.library === "foundry" ? detailTier() : "lit");
+    img.alt = `${effect.name} 精灵图`;
+    const note = document.createElement("p");
+    const rows = Math.ceil(effect.frames / effect.columns);
+    note.textContent = `${effect.frames} 帧，${effect.w}×${effect.h}，每行 ${effect.columns} 帧，共 ${rows} 行。末帧为空的单次特效，播放时会停在它前面。`;
+    $("d-sheet").replaceChildren(img, note);
+    $("d-sheet").hidden = false;
   }
 
   function closeDetail() {
@@ -407,13 +569,43 @@
     applyFilter();
   });
 
-  $("replay").addEventListener("click", () => {
+  $("d-play").addEventListener("click", (event) => {
     if (!detailPlayer) return;
-    detailPlayer.frame = 0;
-    detailPlayer.acc = 0;
-    detailPlayer.hold = 0;
-    detailPlayer.dirty = true;
+    detailPlayer.playing = !detailPlayer.playing;
+    event.currentTarget.setAttribute("aria-pressed", detailPlayer.playing ? "true" : "false");
+    event.currentTarget.textContent = detailPlayer.playing ? "暂停" : "播放";
+  });
+  $("d-again").addEventListener("click", restartDetail);
+  $("d-flip").addEventListener("click", (event) => {
+    if (!detailPlayer) return;
+    detailPlayer.flip = !detailPlayer.flip;
+    event.currentTarget.setAttribute("aria-pressed", detailPlayer.flip ? "true" : "false");
     draw(detailPlayer);
+  });
+  $("d-zoom").addEventListener("click", (event) => {
+    if (!detailPlayer) return;
+    detailPlayer.zoom = detailPlayer.zoom === 1 ? 2 : 1;
+    event.currentTarget.setAttribute("aria-pressed", detailPlayer.zoom > 1 ? "true" : "false");
+    layout(detailPlayer);
+  });
+  $("d-sheet-btn").addEventListener("click", (event) => {
+    if (!detailPlayer) return;
+    const open = $("d-sheet").hidden;
+    event.currentTarget.setAttribute("aria-pressed", open ? "true" : "false");
+    if (open) showSheet(detailPlayer.effect);
+    else $("d-sheet").hidden = true;
+  });
+  $("d-copy").addEventListener("click", async (event) => {
+    const text = $("d-code").textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      event.currentTarget.textContent = "已复制";
+    } catch (error) {
+      event.currentTarget.textContent = "请手动复制";
+    }
+    setTimeout(() => {
+      event.currentTarget.textContent = "复制";
+    }, 1200);
   });
 
   $("close").addEventListener("click", closeDetail);

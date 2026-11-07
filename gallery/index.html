@@ -36,21 +36,42 @@
     <p class="empty" id="empty" hidden>没有符合条件的特效。</p>
   </main>
   <dialog id="detail">
-    <div class="detail-card">
+    <div class="sheet">
       <div class="detail-stage stage" id="detail-stage">
         <canvas id="detail-canvas"></canvas>
+        <button type="button" class="close" id="close">关闭</button>
       </div>
-      <div class="detail-copy">
+      <div class="info">
         <p class="eyebrow" id="detail-kicker"></p>
         <h2 id="detail-title"></h2>
         <p class="desc" id="detail-desc"></p>
         <dl id="detail-facts"></dl>
-        <p class="path" id="detail-path"></p>
-        <div class="detail-actions">
-          <button type="button" class="text-btn" id="replay">重播</button>
-          <button type="button" class="text-btn" id="close">关闭</button>
+        <div class="controls">
+          <div class="ctrl-row">
+            <span class="ctrl-label">播放</span>
+            <button type="button" class="btn" id="d-play" aria-pressed="true">暂停</button>
+            <button type="button" class="btn" id="d-again">再次</button>
+            <span id="d-speed" class="ctrl-row"></span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">背景</span>
+            <span id="d-bg" class="ctrl-row"></span>
+          </div>
+          <div class="ctrl-row" id="d-style-row">
+            <span class="ctrl-label">风格</span>
+            <span id="d-style" class="ctrl-row"></span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">显示</span>
+            <button type="button" class="btn" id="d-flip" aria-pressed="false">镜像</button>
+            <button type="button" class="btn" id="d-zoom" aria-pressed="false">特写</button>
+            <button type="button" class="btn" id="d-sheet-btn" aria-pressed="false">精灵图</button>
+          </div>
         </div>
+        <div class="code-head"><span>用法</span><button type="button" class="btn" id="d-copy">复制</button></div>
+        <pre id="d-code"></pre>
       </div>
+      <div class="sheetout" id="d-sheet" hidden></div>
     </div>
   </dialog>
   <footer>
